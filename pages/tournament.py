@@ -68,6 +68,7 @@ with st.expander("Add New Tournament"):
             tournament_type = st.selectbox("Tournament Type", ["Singles", "Doubles", "Mixed"])
             end_date = st.date_input("End Date")
             level = st.selectbox("Tournament Level", ["Local", "Regional", "National", "International"])
+            age_group = st.selectbox("Age Group", ["U10", "U12", "U14", "U16", "U18", "Senior"])
         
         description = st.text_area("Tournament Description")
         submitted = st.form_submit_button("Add Tournament")
@@ -80,6 +81,7 @@ with st.expander("Add New Tournament"):
                 'location': location,
                 'type': tournament_type,
                 'level': level,
+                'age_group': age_group,
                 'description': description,
                 'created_at': datetime.now().isoformat()
             }
@@ -91,6 +93,16 @@ st.subheader("Tournament Schedule")
 tournaments_df = load_tournaments()
 
 if not tournaments_df.empty:
+    # Define age group colors
+    age_group_colors = {
+        "U10": "#FF9999",  # Light red
+        "U12": "#99FF99",  # Light green
+        "U14": "#9999FF",  # Light blue
+        "U16": "#FFFF99",  # Light yellow
+        "U18": "#FF99FF",  # Light purple
+        "Senior": "#99FFFF"  # Light cyan
+    }
+
     # Prepare calendar events
     calendar_events = []
     for _, tournament in tournaments_df.iterrows():
@@ -98,7 +110,9 @@ if not tournaments_df.empty:
             'title': tournament['name'],
             'start': tournament['start_date'],
             'end': tournament['end_date'],
-            'description': f"Type: {tournament['type']}\nLevel: {tournament['level']}\nLocation: {tournament['location']}"
+            'description': f"Type: {tournament['type']}\nLevel: {tournament['level']}\nLocation: {tournament['location']}",
+            'backgroundColor': age_group_colors[tournament['age_group']],
+            'borderColor': age_group_colors[tournament['age_group']]
         })
     
     # Calendar configuration
@@ -161,6 +175,7 @@ if not tournaments_df.empty:
         with st.expander(f"{tournament['name']} ({tournament['start_date']} - {tournament['end_date']})"): 
             st.write(f"**Type:** {tournament['type']}")
             st.write(f"**Level:** {tournament['level']}")
+            st.write(f"**Age Group:** {tournament['age_group']}")
             st.write(f"**Location:** {tournament['location']}")
             if tournament['description']:
                 st.write(f"**Description:** {tournament['description']}")

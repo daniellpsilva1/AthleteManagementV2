@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS players (
     email VARCHAR(255) UNIQUE,
     phone VARCHAR(50),
     level VARCHAR(50) CHECK (level IN ('Beginner', 'Intermediate', 'Advanced', 'Professional')),
+    age_group VARCHAR(50) CHECK (age_group IN ('U10', 'U12', 'U14', 'U16', 'U18', 'Senior')),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
     location VARCHAR(255) NOT NULL,
     type VARCHAR(50) CHECK (type IN ('Singles', 'Doubles', 'Mixed')),
     level VARCHAR(50) CHECK (level IN ('Local', 'Regional', 'National', 'International')),
+    age_group VARCHAR(50) CHECK (age_group IN ('U10', 'U12', 'U14', 'U16', 'U18', 'Senior')),
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

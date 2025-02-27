@@ -100,10 +100,38 @@ with tab1:
         
         if not sessions_df.empty:
             for _, session in sessions_df.iterrows():
-                with st.expander(f"{session['date']} - {session['time']} ({session['level']})"):
+                with st.expander(f"{session['date']} - {session['time']} ({session['level']})"): 
                     st.write(f"**Maximum Participants:** {session['max_participants']}")
                     if session['notes']:
                         st.write(f"**Notes:** {session['notes']}")
+                    
+                    # Display associated training reports
+                    try:
+                        reports = supabase.table('training_reports')\
+                            .select('*')\
+                            .eq('training_type', 'Group')\
+                            .eq('session_id', session['id'])\
+                            .execute()
+                        
+                        reports_df = pd.DataFrame(reports.data)
+                        
+                        if not reports_df.empty:
+                            st.markdown("---")
+                            st.markdown("### Training Reports")
+                            for _, report in reports_df.iterrows():
+                                st.markdown(f"**Report Date:** {report['report_date']}")
+                                st.markdown(f"**Performance Rating:** {'⭐' * report['performance_rating']}")
+                                if report['achievements']:
+                                    st.markdown(f"**Key Achievements:**\n{report['achievements']}")
+                                if report['areas_for_improvement']:
+                                    st.markdown(f"**Areas for Improvement:**\n{report['areas_for_improvement']}")
+                                if report['coach_notes']:
+                                    st.markdown(f"**Coach Notes:**\n{report['coach_notes']}")
+                                st.markdown("---")
+                        else:
+                            st.info("No training reports available for this session.")
+                    except Exception as e:
+                        st.error(f"Error loading training reports: {str(e)}")
         else:
             st.info("No upcoming group training sessions scheduled.")
     except Exception as e:
