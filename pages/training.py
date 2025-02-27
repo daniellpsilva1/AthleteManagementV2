@@ -50,12 +50,26 @@ def save_group_session(session_data):
 
 def save_training_report(report_data):
     try:
-        supabase.table('training_reports').insert(report_data).execute()
+        response = supabase.table('training_reports').insert(report_data).execute()
+        report_id = response.data[0]['id']
         st.success("Training report saved successfully!")
-        return True
+        return report_id
     except Exception as e:
         st.error(f"Error saving training report: {str(e)}")
+        return None
+
+def save_pse_scores(pse_data_list):
+    try:
+        supabase.table('player_pse_scores').insert(pse_data_list).execute()
+        st.success("PSE scores saved successfully!")
+        return True
+    except Exception as e:
+        st.error(f"Error saving PSE scores: {str(e)}")
         return False
+
+# Initialize session state to avoid duplicate submissions
+if 'form_submitted' not in st.session_state:
+    st.session_state.form_submitted = False
 
 # Load players for selection
 players_df = load_players()
@@ -80,7 +94,8 @@ with tab1:
             notes = st.text_area("Session Notes")
             submitted = st.form_submit_button("Add Session")
             
-            if submitted:
+            if submitted and not st.session_state.form_submitted:
+                st.session_state.form_submitted = True
                 session_data = {
                     'date': str(session_date),
                     'time': str(session_time),
@@ -91,6 +106,10 @@ with tab1:
                 }
                 if save_group_session(session_data):
                     st.rerun()
+    
+    # Reset form submitted state when the form is not being submitted
+    if not st.session_state.form_submitted:
+        st.session_state.form_submitted = False
     
     # View upcoming group sessions
     st.subheader("Upcoming Group Sessions")
@@ -127,6 +146,22 @@ with tab1:
                                     st.markdown(f"**Areas for Improvement:**\n{report['areas_for_improvement']}")
                                 if report['coach_notes']:
                                     st.markdown(f"**Coach Notes:**\n{report['coach_notes']}")
+                                
+                                # Display PSE scores
+                                try:
+                                    pse_scores = supabase.table('player_pse_scores')\
+                                        .select('*')\
+                                        .eq('report_id', report['id'])\
+                                        .execute()
+                                    
+                                    if pse_scores.data:
+                                        st.markdown("**PSE Scores:**")
+                                        for pse in pse_scores.data:
+                                            player = players_df[players_df['id'] == pse['player_id']].iloc[0]
+                                            st.markdown(f"*{player['first_name']} {player['last_name']}:*")
+                                            st.markdown(f"PSE Score: {'⭐' * pse['pse_score']}")
+                                except Exception as e:
+                                    st.error(f"Error loading PSE scores: {str(e)}")
                                 st.markdown("---")
                         else:
                             st.info("No training reports available for this session.")
@@ -167,7 +202,8 @@ with tab2:
                 
                 submitted = st.form_submit_button("Save Training Plan")
                 
-                if submitted:
+                if submitted and not st.session_state.form_submitted:
+                    st.session_state.form_submitted = True
                     player_idx = players_df.apply(
                         lambda x: f"{x['first_name']} {x['last_name']}" == selected_player,
                         axis=1
@@ -190,115 +226,201 @@ with tab2:
                     if save_training_plan(plan_data):
                         st.rerun()
 
+# Modification for tab3 (Group Training Reports)
+# Replace the current form handling in tab3 with this:
+
 with tab3:
     st.header("Group Training Reports")
     
     # Add new group training report
     with st.expander("Add Group Training Report"):
-        with st.form("group_report_form"):
-            # Load group sessions for selection
-            try:
-                sessions = supabase.table('group_training_sessions').select('*').execute()
-                sessions_df = pd.DataFrame(sessions.data)
+        # Check if we are in PSE score entry mode
+        if 'report_id' in st.session_state and 'attendees' in st.session_state:
+            st.subheader("Enter PSE Scores")
+            
+            with st.form("pse_scores_form"):
+                pse_scores = {}
+                for player in st.session_state.attendees:
+                    st.write(f"**{player}**")
+                    pse_score = st.slider("PSE Score", 1, 10, 5, key=f"pse_{player}")
+                    pse_scores[player] = {
+                        "pse_score": pse_score
+                    }
                 
-                if not sessions_df.empty:
-                    session = st.selectbox(
-                        "Select Training Session",
-                        sessions_df.apply(lambda x: f"{x['date']} - {x['time']} ({x['level']})", axis=1)
-                    )
-                    
-                    report_date = st.date_input("Report Date")
-                    performance = st.slider("Overall Performance Rating", 1, 5, 3)
-                    attendance = st.multiselect(
-                        "Select Attendees",
-                        players_df.apply(lambda x: f"{x['first_name']} {x['last_name']}", axis=1)
-                    )
-                    achievements = st.text_area("Key Achievements")
-                    improvements = st.text_area("Areas for Improvement")
-                    notes = st.text_area("Coach Notes")
-                    
-                    submitted = st.form_submit_button("Save Report")
-                    
-                    if submitted:
-                        session_idx = sessions_df.apply(
-                            lambda x: f"{x['date']} - {x['time']} ({x['level']})" == session,
+                pse_submitted = st.form_submit_button("Save PSE Scores")
+                
+                if pse_submitted:
+                    # Save PSE scores for each attendee as a batch
+                    pse_data_list = []
+                    for player in st.session_state.attendees:
+                        player_idx = players_df.apply(
+                            lambda x: f"{x['first_name']} {x['last_name']}" == player,
                             axis=1
                         ).idxmax()
-                        session_id = sessions_df.loc[session_idx, 'id']
+                        player_id = players_df.loc[player_idx, 'id']
                         
-                        report_data = {
-                            'training_type': 'Group',
-                            'session_id': session_id,
-                            'report_date': str(report_date),
-                            'performance_rating': performance,
-                            'attendance': attendance,
-                            'achievements': achievements,
-                            'areas_for_improvement': improvements,
-                            'coach_notes': notes,
+                        pse_data_list.append({
+                            'player_id': player_id,
+                            'report_id': st.session_state.report_id,
+                            'pse_score': pse_scores[player]['pse_score'],
                             'created_at': datetime.now().isoformat()
-                        }
+                        })
+                    
+                    if pse_data_list and save_pse_scores(pse_data_list):
+                        # Clear the session state
+                        del st.session_state.report_id
+                        del st.session_state.attendees
+                        st.rerun()
+        else:
+            # Original form for report creation
+            with st.form("group_report_form"):
+                # Load group sessions for selection
+                try:
+                    sessions = supabase.table('group_training_sessions').select('*').execute()
+                    sessions_df = pd.DataFrame(sessions.data)
+                    
+                    if not sessions_df.empty:
+                        session = st.selectbox(
+                            "Select Training Session",
+                            sessions_df.apply(lambda x: f"{x['date']} - {x['time']} ({x['level']})", axis=1)
+                        )
                         
-                        if save_training_report(report_data):
-                            st.rerun()
-                else:
-                    st.info("No group training sessions available for reporting.")
-            except Exception as e:
-                st.error(f"Error loading group sessions: {str(e)}")
+                        report_date = st.date_input("Report Date")
+                        performance = st.slider("Overall Performance Rating", 1, 5, 3)
+                        attendance = st.multiselect(
+                            "Select Attendees",
+                            players_df.apply(lambda x: f"{x['first_name']} {x['last_name']}", axis=1)
+                        )
+                        
+                        achievements = st.text_area("Key Achievements")
+                        improvements = st.text_area("Areas for Improvement")
+                        notes = st.text_area("Coach Notes")
+                        
+                        submitted = st.form_submit_button("Save Report and Continue to PSE Scores")
+                        
+                        if submitted and not st.session_state.form_submitted:
+                            st.session_state.form_submitted = True
+                            session_idx = sessions_df.apply(
+                                lambda x: f"{x['date']} - {x['time']} ({x['level']})" == session,
+                                axis=1
+                            ).idxmax()
+                            session_id = sessions_df.loc[session_idx, 'id']
+                            
+                            report_data = {
+                                'training_type': 'Group',
+                                'session_id': session_id,
+                                'report_date': str(report_date),
+                                'performance_rating': performance,
+                                'attendance': attendance,
+                                'achievements': achievements,
+                                'areas_for_improvement': improvements,
+                                'coach_notes': notes,
+                                'created_at': datetime.now().isoformat()
+                            }
+                            
+                            report_id = save_training_report(report_data)
+                            if report_id and attendance:
+                                # Store the report ID and attendees in session state
+                                st.session_state.report_id = report_id
+                                st.session_state.attendees = attendance
+                                st.rerun()
+                    else:
+                        st.info("No group training sessions available for reporting.")
+                except Exception as e:
+                    st.error(f"Error loading group sessions: {str(e)}")
+
+# Modification for tab4 (Individual Training Reports)
+# Replace the current form handling in tab4 with this:
 
 with tab4:
     st.header("Individual Training Reports")
     
     # Add new individual training report
     with st.expander("Add Individual Training Report"):
-        with st.form("individual_report_form"):
-            # Load training plans for selection
-            try:
-                plans = supabase.table('training_plans').select('*').execute()
-                plans_df = pd.DataFrame(plans.data)
+        # Check if we are in PSE score entry mode
+        if 'individual_report_id' in st.session_state and 'player_id' in st.session_state:
+            st.subheader("Enter PSE Score")
+            
+            with st.form("individual_pse_form"):
+                pse_score = st.slider("PSE Score", 1, 10, 5, key="pse_individual")
                 
-                if not plans_df.empty:
-                    # Merge with player data
-                    plans_df = plans_df.merge(
-                        players_df[['id', 'first_name', 'last_name']],
-                        left_on='player_id',
-                        right_on='id',
-                        suffixes=('', '_player')
-                    )
+                pse_submitted = st.form_submit_button("Save PSE Score")
+                
+                if pse_submitted:
+                    # Save PSE score
+                    pse_data = [{
+                        'player_id': st.session_state.player_id,
+                        'report_id': st.session_state.individual_report_id,
+                        'pse_score': pse_score,
+                        'created_at': datetime.now().isoformat()
+                    }]
                     
-                    plan = st.selectbox(
-                        "Select Training Plan",
-                        plans_df.apply(lambda x: f"{x['first_name']} {x['last_name']} - {x['focus_area']} ({x['start_date']} to {x['end_date']})", axis=1)
-                    )
+                    if save_pse_scores(pse_data):
+                        # Clear the session state
+                        del st.session_state.individual_report_id
+                        del st.session_state.player_id
+                        st.rerun()
+        else:
+            # Original form for report creation
+            with st.form("individual_report_form"):
+                # Load training plans for selection
+                try:
+                    plans = supabase.table('training_plans').select('*').execute()
+                    plans_df = pd.DataFrame(plans.data)
                     
-                    report_date = st.date_input("Report Date")
-                    performance = st.slider("Performance Rating", 1, 5, 3)
-                    achievements = st.text_area("Key Achievements")
-                    improvements = st.text_area("Areas for Improvement")
-                    notes = st.text_area("Coach Notes")
-                    
-                    submitted = st.form_submit_button("Save Report")
-                    
-                    if submitted:
-                        plan_idx = plans_df.apply(
-                            lambda x: f"{x['first_name']} {x['last_name']} - {x['focus_area']} ({x['start_date']} to {x['end_date']})" == plan,
-                            axis=1
-                        ).idxmax()
-                        plan_id = plans_df.loc[plan_idx, 'id']
+                    if not plans_df.empty:
+                        # Merge with player data
+                        plans_df = plans_df.merge(
+                            players_df[['id', 'first_name', 'last_name']],
+                            left_on='player_id',
+                            right_on='id',
+                            suffixes=('', '_player')
+                        )
                         
-                        report_data = {
-                            'training_type': 'Individual',
-                            'training_plan_id': plan_id,
-                            'report_date': str(report_date),
-                            'performance_rating': performance,
-                            'achievements': achievements,
-                            'areas_for_improvement': improvements,
-                            'coach_notes': notes,
-                            'created_at': datetime.now().isoformat()
-                        }
+                        plan = st.selectbox(
+                            "Select Training Plan",
+                            plans_df.apply(lambda x: f"{x['first_name']} {x['last_name']} - {x['focus_area']} ({x['start_date']} to {x['end_date']})", axis=1)
+                        )
                         
-                        if save_training_report(report_data):
-                            st.rerun()
-                else:
-                    st.info("No individual training plans available for reporting.")
-            except Exception as e:
-                st.error(f"Error loading training plans: {str(e)}")
+                        report_date = st.date_input("Report Date")
+                        performance = st.slider("Performance Rating", 1, 5, 3)
+                        achievements = st.text_area("Key Achievements")
+                        improvements = st.text_area("Areas for Improvement")
+                        notes = st.text_area("Coach Notes")
+                        
+                        submitted = st.form_submit_button("Save Report and Continue to PSE Score")
+                        
+                        if submitted and not st.session_state.form_submitted:
+                            st.session_state.form_submitted = True
+                            plan_idx = plans_df.apply(
+                                lambda x: f"{x['first_name']} {x['last_name']} - {x['focus_area']} ({x['start_date']} to {x['end_date']})" == plan,
+                                axis=1
+                            ).idxmax()
+                            plan_id = plans_df.loc[plan_idx, 'id']
+                            player_id = plans_df.loc[plan_idx, 'player_id']
+                            
+                            report_data = {
+                                'training_type': 'Individual',
+                                'training_plan_id': plan_id,
+                                'report_date': str(report_date),
+                                'performance_rating': performance,
+                                'achievements': achievements,
+                                'areas_for_improvement': improvements,
+                                'coach_notes': notes,
+                                'created_at': datetime.now().isoformat()
+                            }
+                            
+                            report_id = save_training_report(report_data)
+                            if report_id:
+                                # Store the report ID and player ID in session state
+                                st.session_state.individual_report_id = report_id
+                                st.session_state.player_id = player_id
+                                st.rerun()
+                    else:
+                        st.info("No individual training plans available for reporting.")
+                except Exception as e:
+                    st.error(f"Error loading training plans: {str(e)}")
+
+# Reset the form_submitted state if we're not in the middle of a form submission
+if st.session_state.form_submitted:
+    st.session_state.form_submitted = False
